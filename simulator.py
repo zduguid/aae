@@ -23,7 +23,7 @@ class Bathymetry():
         self.bb = bb
         self.animations = animations
         self.header_size = 6
-
+        
 
     @staticmethod
     def parse_file(filename, bb, animations=True, save=True):
@@ -222,7 +222,7 @@ class Bathymetry():
         :param bb: the bounding box of bathymetry to be plotted
             + bounding box in units of degrees longitude and latitude
             + requires that the input bounding box is a subset of the data
-            + default behavior is to plot all available data 
+            + default behavior is to plot all available data (no bb given)
         """
         if self.animations: print('>> plotting bathymetry')
 
@@ -246,10 +246,6 @@ class Bathymetry():
             row_min, col_min = 0,0
             row_max, col_max = self.multibeam.shape
 
-        # assert that row_max and col_max do not cause index out of bounds error
-        if row_max == self.nrows: row_max -= 1
-        if col_max == self.ncols: col_max -= 1
-
         # extract the corresponding rectangle of multibeam data
         bath_rect = self.multibeam[row_min:row_max:skip, col_min:col_max:skip]
         bath_set = set(bath_rect.flatten())
@@ -257,6 +253,8 @@ class Bathymetry():
         # remove nodata_value to achieve appropriate color scaling
         if self.nodata_value in bath_set:
             bath_set.remove(self.nodata_value)
+
+        # calculate the max in min bathymetry height to set the color scale
         vmin = min(bath_set)
         vmax = max(bath_set)
 
@@ -264,24 +262,28 @@ class Bathymetry():
         def mask(x):
             return x == self.nodata_value
 
-        # font sizes
+        # plotting parameters
+        figsize = (10, 6.5)
         font_large = 22
         font_medium = 15
         font_small = 12
+        line_width = 5
+        x_tick_num = 5
+        y_tick_num = 5
 
         # setting label tick spacing
         rows = bath_rect.shape[0]
         cols = bath_rect.shape[1]
-        x_tick_num = 5
-        y_tick_num = 5
         x_tick_spacing = math.ceil(cols/x_tick_num)
         y_tick_spacing = math.ceil(rows/y_tick_num)
 
         # plot the figure
-        figsize = (10, 6.5)
-        fig =plt.figure(figsize=figsize)
-        sns.set_style('darkgrid', {'axes.linewidth': 5, 'axes.edgecolor':'black'})
-        ax = sns.heatmap(bath_rect, square=True, cmap='jet', vmin=vmin, vmax=vmax, mask=mask(bath_rect), yticklabels=True, xticklabels=True, cbar_kws={'label': 'Depth [Meters]'})
+        fig = plt.figure(figsize=figsize)
+        sns.set_style('darkgrid')
+        ax = sns.heatmap(bath_rect, square=True, cmap='jet', 
+                         vmin=vmin, vmax=vmax, mask=mask(bath_rect),
+                         xticklabels=True, yticklabels=True, 
+                         cbar_kws={'label': 'Depth [Meters]'})
         ax.figure.axes[-1].yaxis.label.set_size(font_medium)
         ax.figure.axes[-1].set_yticklabels(ax.figure.axes[-1].get_yticklabels(), size=font_small)
 
@@ -291,23 +293,23 @@ class Bathymetry():
         ax.set_ylabel('Latitude [degrees]', fontsize=font_medium)
         ax.set_xticks(ax.get_xticks()[int(x_tick_spacing/2)::x_tick_spacing])
         ax.set_yticks(ax.get_yticks()[int(y_tick_spacing/2)::y_tick_spacing])
-        ax.set_xticklabels([str(round(self.bb.get_lon(a/self.ncols), 2)) for a in ax.get_xticks()], rotation=0, fontsize=font_small)
-        ax.set_yticklabels([str(round(self.bb.get_lat(a/self.nrows), 2)) for a in ax.get_yticks()], fontsize=font_small)
-        plt.show()
+        ax.set_xticklabels([str(round(self.bb.get_lon(a/cols), 2)) for a in ax.get_xticks()], rotation=0, fontsize=font_small)
+        ax.set_yticklabels([str(round(self.bb.get_lat(a/rows), 2)) for a in ax.get_yticks()], fontsize=font_small)
+        fig.savefig('bathymetry/plots/low.png')
 
 
 
 if __name__ == '__main__':
     # raw data set
-    #   + downloaded from (http://www.soest.hawaii.edu/pibhmc/cms/)
+    #   + download link: (http://www.soest.hawaii.edu/pibhmc/cms/)
     raw_file  = 'bathymetry/kohala/kohala_synth_5m.asc'
     raw_bb = BoundingBox(w_lim = -156.31, 
                          e_lim = -155.67, 
                          n_lim =   20.54, 
                          s_lim =   19.64)
 
-    # falkor data set where engineering cruise took place
-    #   + see link for more information: (https://schmidtocean.org/rv-falkor/)
+    # Falkor data set where engineering cruise took place
+    #   + more information about Falkor: (https://schmidtocean.org/rv-falkor/)
     falkor_file = 'bathymetry/falkor/falkor_5m.npy'
     falkor_bb = BoundingBox(w_lim = -156.03, 
                             e_lim = -155.82, 

@@ -63,7 +63,6 @@ class Animation():
                 sys.stdout.flush()
                 
 
-
 class BoundingBox():
     def __init__(self, w_lim, e_lim, n_lim, s_lim):
         """
@@ -108,15 +107,13 @@ class BoundingBox():
         """
         return (ratio * self.get_lon_range()) + self.get_w_lim()
 
-
     def get_lat(self, ratio):
         """
         calculates the correct latitude for a given location
         :param ratio: the ratio of latitude between southern and northern limits
         :returns: the longitude value equal to the ratio of the bounding box
         """
-        return (ratio * self.get_lat_range()) + self.get_s_lim()
-
+        return -(ratio * self.get_lat_range()) + self.get_n_lim()
 
     def get_intersection(self, bb):
         """
@@ -129,7 +126,6 @@ class BoundingBox():
         n_lim = min(self.get_n_lim(), bb.get_n_lim())
         s_lim = max(self.get_s_lim(), bb.get_s_lim())
         return BoundingBox(w_lim, e_lim, n_lim, s_lim)
-
 
 
 class FileFormatError(Exception):
