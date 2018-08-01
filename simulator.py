@@ -2,7 +2,7 @@
 # 
 # - provides framework to read, visualize, and simulate bathymetric data
 
-import math, sys
+import math, sys, random
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -23,10 +23,10 @@ class Bathymetry():
         self.bb = bb
         self.animations = animations
         self.header_size = 6
-        
+
 
     @staticmethod
-    def parse_file(filename, bb, animations=True, save=True):
+    def parse_file(filename, bb, save=True, animations=True):
         """
         creates new Bathymetry object by parsing file 
         :param filename: the location of the bathymetry file to be parsed
@@ -35,6 +35,7 @@ class Bathymetry():
         :param save: indicates whether or not the parsed data is saved
         :param bb: the bounding box of the plot of bathymetry
             + bounding box in units of degrees longitude and latitude
+        :param animations: indicates whether command-line updates are displayed
         :raises FileNotFoundError: if filepath does not exist
         :raises FileFormatError: if file does not follow ASCII Grid format 
         :returns: the parsed bathymetry object
@@ -55,9 +56,11 @@ class Bathymetry():
               with the same name (but with different file extension)
         :param bb: the bounding box of the plot of bathymetry
             + bounding box in units of degrees longitude and latitude
+        :param animations: indicates whether command-line updates are displayed
         :raises FileNotFoundError: if file has not been parsed properly
         """
         if animations: print('>> input file: ' + filename)
+
         # filename is required have .asc extension (hence the value -4)
         ext_len = -4
         bath_header_file =    filename[:ext_len] + '_header.npy'
@@ -86,6 +89,7 @@ class Bathymetry():
     def _parse_file(self, save):
         """
         parses file by parsing header and then body of the file
+        :param save: indicates whether or not the parsed data is saved
         """
         # check if filepath exists
         if Path(self.filename).is_file():
@@ -165,6 +169,7 @@ class Bathymetry():
             if len(body_line.split()) != self.ncols:
                 raise FileFormatError('invalid number of cols')
 
+            # store each new row of data in the array
             self.multibeam[body_i] = np.array([self._parse_number(s) for s in body_line.split()])
             body_i += 1
             body_line = file.readline()
@@ -185,6 +190,7 @@ class Bathymetry():
         :returns: the value of the string, either int or float
         """
         default_nodata_value = -9999
+
         # try casting as float to assess numerical strings
         try: 
             float_value = float(str_number)
@@ -201,10 +207,10 @@ class Bathymetry():
         updates the header field
         :param header: the header to be set
         """
-        self.header = header
-        self.nrows = header['nrows']
-        self.ncols = header['ncols']
-        self.resolution = header['cellsize']
+        self.header       = header
+        self.nrows        = header['nrows']
+        self.ncols        = header['ncols']
+        self.resolution   = header['cellsize']
         self.nodata_value = header['nodata_value']
 
 
@@ -216,20 +222,23 @@ class Bathymetry():
         self.multibeam = multibeam
 
 
-    def plot(self, title='Bathymetry Data', bb=None, resolution='default'):
+    def plot_bathymetry(self, title='Bathymetry Data', bb=None, resolution='default'):
         """
         extracts and plots a rectangle of bathymetry
+        :param title: the title of the created plot
         :param bb: the bounding box of bathymetry to be plotted
             + bounding box in units of degrees longitude and latitude
             + requires that the input bounding box is a subset of the data
             + default behavior is to plot all available data (no bb given)
+        :param resolution: controls resolution of the graph output 
+            + lower resolution ('crude' option) is plotted much faster
         """
         if self.animations: print('>> plotting bathymetry')
 
         # array skipping for when a rought plot is desired
         if   resolution == 'high'         : skip =   1 
         elif resolution == 'intermediate' : skip =   5
-        if   resolution == 'crude'        : skip =  50
+        elif resolution == 'crude'        : skip =  50
         else                              : skip =  10
 
         # get indices for bathymetry to be plotted
@@ -295,8 +304,253 @@ class Bathymetry():
         ax.set_yticks(ax.get_yticks()[int(y_tick_spacing/2)::y_tick_spacing])
         ax.set_xticklabels([str(round(self.bb.get_lon(a/cols), 2)) for a in ax.get_xticks()], rotation=0, fontsize=font_small)
         ax.set_yticklabels([str(round(self.bb.get_lat(a/rows), 2)) for a in ax.get_yticks()], fontsize=font_small)
-        fig.savefig('bathymetry/plots/low.png')
+        fig.savefig('bathymetry/plots/5m_' + resolution + '.png')
+        plt.close()
 
+
+    def simulate_sonar_data(self, n, patch_length=80, plot=True):
+        """
+        simulates example sonar data readings to mimic AUG scanning sonar
+        :param n: number of data points to be produced
+        :param patch_length: size of matrix to represent 5m-gridded bathymetry
+        :param plot: indicates whether or not simulated data is plotted
+        :returns: an array of data points where each point is a 3D stacked matrix
+            + where the 1st matrix represents the simulated sonar patch
+            + where the 2nd matrix represents the input bathymetry patch 
+        """
+        # initialize data array
+        if self.animations: print('>> simulating data')
+        patch_buffer = int(patch_length/2)
+        data = []
+
+        # depth allowed allowed in patch (enforces operational feasibility)
+        depth_threshold_low  = -150
+        depth_threshold_high =   20
+
+        # tolerance allows for small amount of missing data (1% of patch)
+        nodata_tolerance = int(0.01*patch_length**2)
+
+        # sample row and col are maintained to make location-based plots
+        sample_rows = []
+        sample_cols = []
+        num_patches = 0
+
+        # perform random sampling until specified amount of data acquired
+        while num_patches < n:
+
+            # randomly sample a patch of bathymetry
+            col = np.random.randint(patch_buffer, self.multibeam.shape[1] - patch_buffer)
+            row = np.random.randint(patch_buffer, self.multibeam.shape[0] - patch_buffer)
+            patch_bath = self.multibeam[row-patch_buffer:row+patch_buffer, 
+                                        col-patch_buffer:col+patch_buffer]
+
+            # filter out samples that are too shallow for operations
+            if np.max(patch_bath) < depth_threshold_high:
+
+                # when samples not too deep they are valid samples
+                if np.min(patch_bath) > depth_threshold_low:
+                    data.append(self._simulate(patch_bath))
+                    num_patches += 1
+                    sample_rows.append(-row)
+                    sample_cols.append(col)  
+
+                # otherwise count the frequency of the nodata_value
+                else:
+
+                    # get next lowest value if frequency is low enough
+                    unique, counts = np.unique(patch_bath, return_counts=True)
+                    if unique[0] == self.nodata_value and counts[0] < nodata_tolerance:
+                        patch_set = set(patch_bath.flatten())
+                        patch_set.remove(self.nodata_value)
+
+                        # when samples not too deep they are valid samples
+                        if min(patch_set) > depth_threshold_low:
+
+                            # set nodata_values to the average for better learning
+                            patch_bath[patch_bath == self.nodata_value] = np.average(patch_bath)
+                            data.append(self._simulate(patch_bath))
+                            num_patches += 1
+                            sample_rows.append(-row)
+                            sample_cols.append(col)
+
+        if plot == True:
+            # plot locations of where data was simulated
+            self._plot_sample_locations(sample_cols, sample_rows)
+
+            # plot subset of data that was simulated
+            self._plot_simulated_data(data)
+
+        return np.array(data)
+
+
+    def _simulate(self, patch):
+        """
+        simulates sonar readings of the AUG
+        :param patch: the bathymetry patch that the AUG is measuring
+        :returns: stacked matrix with shape (path_length, patch_length, 2)
+            + where the 1st matrix represents the simulated sonar patch
+            + where the 2nd matrix represents the input bathymetry patch
+            + where both matrices have already been normalized
+        """
+        # the matrix dimensions of the bathymetry patch
+        patch_length = patch.shape[0]
+        # ascent/descent pitch angle in [rad]
+        pitch_angle = 0.45
+        # depth band in [m]
+        depth_band = (patch_length/2) / math.tan(pitch_angle)
+        # resolution of grid in [m]
+        grid = 5 
+        # horizontal glider speed in [m/s]
+        horizontal_speed = 1 
+        # dive rate of glider in [m/s]
+        dive_rate = horizontal_speed * math.tan(pitch_angle)
+        # time to complete one ascent-descent cycle in [s]
+        T = patch_length/horizontal_speed
+        # randomly selected heading in [rad]
+        theta = np.random.uniform(0, 2*np.pi)
+
+        # other constants used when simulating data
+        z0          = depth_band / grid
+        s0          = 0.1*z0
+        s           = s0
+        peaks_num   = 10
+        peaks_gain  = 2
+        delta_s     = dive_rate
+        local_mu    = 0
+        local_sig   = patch_length*0.003
+        sonar_mu    = 0
+        sonar_sig   = 0.1
+
+        # parameterization of glider motion
+        t   = np.linspace(-T/2, T/2, peaks_num*patch_length)
+        x_t = t * horizontal_speed * math.cos(theta)
+        y_t = t * horizontal_speed * math.sin(theta) 
+        z_t = z0 - np.absolute(t)  * dive_rate
+        s_t = np.array([s0])
+
+        # calculate scanning sonar motion in the local frame
+        for i in range(len(t)-1):
+
+            # direction of scanning sonar motion changes
+            if np.absolute(s + delta_s) >= (np.absolute(z_t[i+1]) + s0):
+                delta_s *= -1
+
+            # update the state of the scanning sonar in the local frame
+            s  += delta_s
+            s_t = np.append(s_t, s*peaks_gain)
+
+        # convert sonar motion from local frame to intertial frame
+        s_x_t = x_t + s_t * math.sin(theta)
+        s_y_t = y_t - s_t * math.cos(theta)
+
+        # add some random noise to the location of the sonar readings
+        s_x_t += np.random.normal(local_mu, local_sig, len(t))
+        s_y_t += np.random.normal(local_mu, local_sig, len(t)) 
+
+        # generate index coordinate list of the sonar readings
+        coordinate_list = [(math.floor(s_x_t[i] + patch_length/2 - 1),
+                            math.floor(s_y_t[i] + patch_length/2 - 1))
+                           for i in range(len(t))]
+
+        # extract depth values from the coordinates and add some noise
+        sonar_patch_vals = np.array([patch[j,i] for (i,j) in coordinate_list])
+        sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, len(sonar_patch_vals))
+        
+        # calculate mean and standard deviation of simulated depth values
+        sonar_patch_mean = np.mean(sonar_patch_vals)
+        sonar_patch_std  = np.std(sonar_patch_vals)
+
+        # normalize both the sonar patch and original input patch
+        sonar_patch_vals -= sonar_patch_mean
+        sonar_patch_vals *= 1/sonar_patch_std
+        patch            -= sonar_patch_mean
+        patch            *= 1/sonar_patch_std
+
+        # reconstruct the sonar matrix now that values have been normalized
+        sonar_patch = np.zeros([patch_length, patch_length])
+        for k in range(len(coordinate_list)):
+            i,j = coordinate_list[k][0], coordinate_list[k][1]
+            sonar_patch[j,i] = sonar_patch_vals[k]
+
+        # stack the two matrices to yield one multimodal data point
+        return np.dstack((sonar_patch, patch))
+
+
+    def _plot_sample_locations(self, sample_col, sample_row):
+        """
+        plots the longitude-latitude locations of where samples were taken
+        :param sample_col: index list of the column where each sample was taken
+        :param sample_row: index list of the row where each sample was taken
+        """
+        # plotting parameters
+        font_large = 15
+        font_medium = 12
+        df = pd.DataFrame()
+        df['x'] = sample_col
+        df['y'] = sample_row
+
+        # generate plot
+        sns.set_style('darkgrid')
+        g = sns.lmplot('x', 'y', data=df, scatter_kws={"s": 1}, fit_reg=False, size=6, aspect=1.5)
+        g.set(yticklabels=[], xticklabels=[])
+        plt.xlabel('Latitude', fontsize=font_medium)
+        plt.ylabel('Longitude', fontsize=font_medium)
+        plt.title('Simulate Sonar Locations', fontsize=font_large)
+        plt.tight_layout()
+        plt.savefig('bathymetry/plots/simulated_locations.png')
+        plt.close()
+
+
+    def _plot_simulated_data(self, data):
+        """
+        plots the simulated sonar data with the corresponding bathymetry patch
+        :param data: the array of data points containing the simulated data
+        """
+        if self.animations: print('>> plotting simulated data')
+
+        # plotting parameters
+        ncols = min(4, len(data))
+        data_indices = random.sample(range(len(data)), ncols)
+        figsize = (14, 6)
+        font_large = 25
+        font_medium = 15
+        sns.set_style('darkgrid')
+
+        def mask(x):
+            return x == 0
+
+        fig, ax = plt.subplots(figsize=figsize, ncols=ncols, nrows=2)
+
+        plt.subplots_adjust(left    =  0.1,     # left side location
+                            bottom  =  0.1,     # bottom side location
+                            right   =  0.9,     # right side location
+                            top     =  0.9,     # top side location
+                            wspace  =  0.6,     # horizontal gap
+                            hspace  =  0.05)    # vertical gap 
+
+        # generate each column of the plot
+        for i in range(ncols):
+            # extract min and max for color scaling
+            vmin = np.min(data[i][:,:,0])
+            vmax = np.max(data[i][:,:,0])
+
+            # plot the sonar simulated data
+            sns.heatmap(data[i][:,:,0], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[0][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(data[i][:,:,0]),
+                        cbar=False)
+
+            # plot the corresponding patch of bathymetry
+            sns.heatmap(data[i][:,:,1], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[1][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(data[i][:,:,1]),
+                        cbar=False)
+
+        fig.suptitle('Simulated Sonar Measurements', fontsize=font_large)
+        plt.savefig('bathymetry/plots/simulated_examples.png')
+        plt.close()
 
 
 if __name__ == '__main__':
@@ -308,14 +562,14 @@ if __name__ == '__main__':
                          n_lim =   20.54, 
                          s_lim =   19.64)
 
-    # Falkor data set where engineering cruise took place
+    # Falkor data set where engineering cruise took place in Hawaii
     #   + more information about Falkor: (https://schmidtocean.org/rv-falkor/)
     falkor_file = 'bathymetry/falkor/falkor_5m.npy'
     falkor_bb = BoundingBox(w_lim = -156.03, 
                             e_lim = -155.82, 
                             n_lim =   20.01, 
                             s_lim =   19.84)
-
+    
     falkor_bath = Bathymetry.load_file(falkor_file, falkor_bb)
-    falkor_bath.plot(title='Hawaii, HI', resolution='crude')
-
+    falkor_bath.plot_bathymetry(title='Hawaii, HI', resolution='crude')
+    data = falkor_bath.simulate_sonar_data(n=4, plot=True)
