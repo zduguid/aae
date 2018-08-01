@@ -11,15 +11,20 @@ from keras.layers import Activation, Embedding, ZeroPadding2D, MaxPooling2D
 from keras.layers import LeakyReLU
 import keras.backend as K
 
+import math, sys, random
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
 import seaborn as sns
+from pathlib import Path
+from simulator import Bathymetry
+from utils import Animation, BoundingBox, FileFormatError
 
 
 class AdversarialAutoencoder():
     """
-    TODO write specification
+    TODO write complete specification
     """
     def __init__(self):
         # define input dimensions and latent space dimension
@@ -111,13 +116,12 @@ class AdversarialAutoencoder():
         return Model(z, x)
 
 
-
     def build_discriminator(self):
         """
         build the discriminator NN
         :return: discriminator NN
         """
-        # TODO network structure 
+        # TODO refactor network structure 
         model = Sequential()
 
         model.add(Dense(512, input_dim=self.z_dim))
@@ -131,7 +135,6 @@ class AdversarialAutoencoder():
         validity = model(encoded_repr)
 
         return Model(encoded_repr, validity)
-
 
 
     def train(self, epochs, batch_size, sample_interval):
@@ -158,6 +161,48 @@ class AdversarialAutoencoder():
         pass
 
 
-if __name__ == "__main__":
-    aae = AdversarialAutoencoder()
+    def save_data(self):
+        """
+        TODO write specification
+        """
+        # TODO implement this function
+        pass
 
+
+    def load_saved_model(self):
+        """
+        TODO write specification
+        """
+        # TODO implement this function
+        pass
+
+
+    def load_saved_data(self):
+        """
+        TODO write specification
+        """
+        # TODO implement this function
+        pass
+
+
+if __name__ == "__main__":
+    # aae = AdversarialAutoencoder()
+
+    # raw data set
+    #   + download link: (http://www.soest.hawaii.edu/pibhmc/cms/)
+    raw_file  = 'bathymetry/kohala/kohala_synth_5m.asc'
+    raw_bb    = BoundingBox(w_lim = -156.31, 
+                            e_lim = -155.67, 
+                            n_lim =   20.54, 
+                            s_lim =   19.64)
+
+    # Falkor data set where engineering cruise took place in Hawaii
+    #   + more information about Falkor: (https://schmidtocean.org/rv-falkor/)
+    falkor_file = 'bathymetry/falkor/falkor_5m.npy'
+    falkor_bb = BoundingBox(w_lim = -156.03, 
+                            e_lim = -155.82, 
+                            n_lim =   20.01, 
+                            s_lim =   19.84)
+
+    falkor_bath = Bathymetry.load_file(falkor_file, falkor_bb)
+    data = falkor_bath.simulate_sonar_data(n=500, plot=False)

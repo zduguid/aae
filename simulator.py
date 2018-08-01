@@ -308,7 +308,7 @@ class Bathymetry():
         plt.close()
 
 
-    def simulate_sonar_data(self, n, patch_length=80, plot=True):
+    def simulate_sonar_data(self, n, patch_length=80, plot=False):
         """
         simulates example sonar data readings to mimic AUG scanning sonar
         :param n: number of data points to be produced
@@ -551,25 +551,3 @@ class Bathymetry():
         fig.suptitle('Simulated Sonar Measurements', fontsize=font_large)
         plt.savefig('bathymetry/plots/simulated_examples.png')
         plt.close()
-
-
-if __name__ == '__main__':
-    # raw data set
-    #   + download link: (http://www.soest.hawaii.edu/pibhmc/cms/)
-    raw_file  = 'bathymetry/kohala/kohala_synth_5m.asc'
-    raw_bb = BoundingBox(w_lim = -156.31, 
-                         e_lim = -155.67, 
-                         n_lim =   20.54, 
-                         s_lim =   19.64)
-
-    # Falkor data set where engineering cruise took place in Hawaii
-    #   + more information about Falkor: (https://schmidtocean.org/rv-falkor/)
-    falkor_file = 'bathymetry/falkor/falkor_5m.npy'
-    falkor_bb = BoundingBox(w_lim = -156.03, 
-                            e_lim = -155.82, 
-                            n_lim =   20.01, 
-                            s_lim =   19.84)
-    
-    falkor_bath = Bathymetry.load_file(falkor_file, falkor_bb)
-    falkor_bath.plot_bathymetry(title='Hawaii, HI', resolution='crude')
-    data = falkor_bath.simulate_sonar_data(n=4, plot=True)
