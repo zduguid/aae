@@ -15,7 +15,7 @@ An Adversarial Autoencoder (AAE) is a type of Generative Adversarial Network (GA
 
 
 ## Getting Started 
-To run this script, you will need to satisfy the following [Dependencies](#dependencies). The original paper on adversarial autoencoders can be found [here.](https://arxiv.org/abs/1511.05644). Two repositories that were leveraged heavily when writing the adversarial autoencoder Python implementation can be found [here](https://github.com/bstriner/keras-adversarial) and [here.](https://github.com/eriklindernoren/Keras-GAN). Bathymetric data of the Hawaiian Islands is available [here.](http://www.soest.hawaii.edu/pibhmc/cms/)
+To run this script, you will need to satisfy the following [Dependencies](#dependencies). The original paper on adversarial autoencoders can be found [here](https://arxiv.org/abs/1511.05644). Two repositories that were leveraged heavily when writing the adversarial autoencoder Python implementation can be found [here](https://github.com/bstriner/keras-adversarial) and [here](https://github.com/eriklindernoren/Keras-GAN). Bathymetric data of the Hawaiian Islands is available [here](http://www.soest.hawaii.edu/pibhmc/cms/).
 
 
 ### Dependencies 

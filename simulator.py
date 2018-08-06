@@ -304,7 +304,7 @@ class Bathymetry():
         ax.set_yticks(ax.get_yticks()[int(y_tick_spacing/2)::y_tick_spacing])
         ax.set_xticklabels([str(round(self.bb.get_lon(a/cols), 2)) for a in ax.get_xticks()], rotation=0, fontsize=font_small)
         ax.set_yticklabels([str(round(self.bb.get_lat(a/rows), 2)) for a in ax.get_yticks()], fontsize=font_small)
-        fig.savefig('bathymetry/plots/5m_' + resolution + '.png')
+        fig.savefig('data/plots/5m_' + resolution + '.png')
         plt.close()
 
 
@@ -448,12 +448,12 @@ class Bathymetry():
         s_y_t += np.random.normal(local_mu, local_sig, len(t)) 
 
         # generate index coordinate list of the sonar readings
-        coordinate_list = [(math.floor(s_x_t[i] + patch_length/2 - 1),
-                            math.floor(s_y_t[i] + patch_length/2 - 1))
-                           for i in range(len(t))]
+        coord_list = [(max(min(math.floor(s_x_t[i] + patch_length/2), patch_length - 1), 0),
+                       max(min(math.floor(s_y_t[i] + patch_length/2), patch_length - 1), 0))
+                      for i in range(len(t))]
 
         # extract depth values from the coordinates and add some noise
-        sonar_patch_vals = np.array([patch[j,i] for (i,j) in coordinate_list])
+        sonar_patch_vals = np.array([patch[j,i] for (i,j) in coord_list])
         sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, len(sonar_patch_vals))
         
         # calculate mean and standard deviation of simulated depth values
@@ -468,8 +468,8 @@ class Bathymetry():
 
         # reconstruct the sonar matrix now that values have been normalized
         sonar_patch = np.zeros([patch_length, patch_length])
-        for k in range(len(coordinate_list)):
-            i,j = coordinate_list[k][0], coordinate_list[k][1]
+        for k in range(len(coord_list)):
+            i,j = coord_list[k][0], coord_list[k][1]
             sonar_patch[j,i] = sonar_patch_vals[k]
 
         # stack the two matrices to yield one multimodal data point
@@ -491,13 +491,13 @@ class Bathymetry():
 
         # generate plot
         sns.set_style('darkgrid')
-        g = sns.lmplot('x', 'y', data=df, scatter_kws={"s": 1}, fit_reg=False, size=6, aspect=1.5)
+        g = sns.lmplot('x', 'y', data=df, scatter_kws={'s': 1}, fit_reg=False, size=6, aspect=1.5)
         g.set(yticklabels=[], xticklabels=[])
         plt.xlabel('Latitude', fontsize=font_medium)
         plt.ylabel('Longitude', fontsize=font_medium)
         plt.title('Simulate Sonar Locations', fontsize=font_large)
         plt.tight_layout()
-        plt.savefig('bathymetry/plots/simulated_locations.png')
+        plt.savefig('data/plots/simulated_locations.png')
         plt.close()
 
 
@@ -549,5 +549,5 @@ class Bathymetry():
                         cbar=False)
 
         fig.suptitle('Simulated Sonar Measurements', fontsize=font_large)
-        plt.savefig('bathymetry/plots/simulated_examples.png')
+        plt.savefig('data/plots/simulated_examples.png')
         plt.close()
