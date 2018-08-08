@@ -163,14 +163,14 @@ class AdversarialAutoencoder():
         return Model(z, y, name='discriminator')
 
 
-    def train(self, x, epochs, batch_size=32, sample_interval=1):
+    def train(self, data, epochs, batch_size=32, sample_interval=1):
         """
         trains the AAE network by alternating between two phases:
             1) reconstruction phase: update encoder and decoder to 
                 minimize reconstruction error 
             2) regularization phase: update discriminator to distinguish true 
                 samples from generated, update encoder to fool discriminator
-        :param x: the training data
+        :param data: the training data
         :param epochs: the number of passes through the data
         :param batch_size: the number of training examples in a training batch
         :param sample_interval: frequency of generating a test sample
@@ -181,13 +181,13 @@ class AdversarialAutoencoder():
         for epoch in range(epochs):
 
             # randomize order that data is presented for a given epoch
-            epoch_i = random.sample(range(len(x)), len(x))
+            epoch_i = random.sample(range(len(data)), len(data))
 
             # train the network in batches of size batch_size
             for j in range(0, len(epoch_i), batch_size):
 
                 # get the batch of data points for one training update
-                x_batch = x[epoch_i[j : j+batch_size]]
+                x_batch = np.copy(data[epoch_i[j : j+batch_size]])
 
                 # train the discriminator and then the encoder
                 dis_loss = self._train_discriminator(x_batch)
@@ -252,8 +252,8 @@ class AdversarialAutoencoder():
         generates sample data points by sampling z values from p(z)
         :param epochs: the epoch at which the samples are generated 
         """
-        # plotting parameters 
-        sample_num = 4
+        # plotting parameters
+        ncols = 4
         figsize = (14, 6)
         font_large = 25
         font_medium = 15
@@ -262,7 +262,7 @@ class AdversarialAutoencoder():
         def mask(x):
             return x == 0
 
-        fig, ax = plt.subplots(figsize=figsize, ncols=sample_num, nrows=2)
+        fig, ax = plt.subplots(figsize=figsize, ncols=ncols, nrows=2)
 
         plt.subplots_adjust(left    =  0.1,     # left side location
                             bottom  =  0.1,     # bottom side location
@@ -272,37 +272,34 @@ class AdversarialAutoencoder():
                             hspace  =  0.05)    # vertical gap 
 
         # generate each column of the plot
-        for i in range(sample_num):
-            
+        for i in range(ncols):
             # sample from p(z) and generate x_pred with the decoder
-            z_sample = np.random.normal(size=(1, self.z_dim))
-            x_sample = self.decoder.predict(z_sample)[0]
+            z_point    = np.random.normal(size=(1, self.z_dim))
+            data_point = self.decoder.predict(z_point)[0]
 
             # extract min and max for color scaling
-            vmin = np.min(x_sample)
-            vmax = np.max(x_sample)
+            vmin = np.min(data_point)
+            vmax = np.max(data_point)
 
-            # plot the sampled sonar data
-            sns.heatmap(x_sample[:,:,0], square=True, cmap='jet', 
+            # plot the sonar simulated data
+            sns.heatmap(data_point[:,:,0], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[0][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(x_sample[:,:,0]),
                         cbar=False)
 
-            # plot the sampled bathymetry data
-            sns.heatmap(x_sample[:,:,1], square=True, cmap='jet', 
+            # plot the corresponding patch of bathymetry
+            sns.heatmap(data_point[:,:,1], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[1][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(x_sample[:,:,1]),
                         cbar=False)
 
         fig.suptitle('Sampled Bathymetry (Epoch ' + str(epoch) + ')', fontsize=font_large)
         ax[0][0].set(ylabel='Sonar \n Measurements')
         ax[0][0].yaxis.label.set_size(font_medium)
         ax[1][0].set(ylabel='Bathymetry \n Patch')
-        ax[1][0].yaxis.label.set_size(font_medium)
-        for i in range(sample_num):
-            ax[1][i].set(xlabel='Sample '+str(i+1))
+        ax[1][0].yaxis.label.set_size(ncols)
+        for i in range(ncols):
+            ax[1][i].set(xlabel='Example '+str(i+1))
             ax[1][i].xaxis.label.set_size(font_medium)
         plt.savefig('data/plots/sampled_epoch' + str(epoch) + '.png')
         plt.close()
@@ -315,16 +312,20 @@ class AdversarialAutoencoder():
         :param data: the data to be randomly sampled to make predictions 
         """
         # plotting parameters
-        sample_num = 4
+        ncols = min(4, len(data))
         figsize = (14, 8)
         font_large = 25
         font_medium = 15
         sns.set_style('darkgrid')
 
+        # randomly sample points in the data set
+        data_indices = random.sample(range(len(data)), ncols)
+        data_points  = data[data_indices]
+
         def mask(x):
             return x == 0
 
-        fig, ax = plt.subplots(figsize=figsize, ncols=sample_num, nrows=3)
+        fig, ax = plt.subplots(figsize=figsize, ncols=ncols, nrows=3)
 
         plt.subplots_adjust(left    =  0.1,     # left side location
                             bottom  =  0.1,     # bottom side location
@@ -333,45 +334,38 @@ class AdversarialAutoencoder():
                             wspace  =  0.6,     # horizontal gap
                             hspace  =  0.05)    # vertical gap 
 
-        # sample random points in the data set
-        data_indices = random.sample(range(len(data)), sample_num)
-
         # generate each column of the plot
-        for i in range(sample_num):
-            
-            # extract the data point
-            x_data = data[data_indices[i]]
-            
-            # knockout the multibeam bathymetry modality
-            x_input = np.dstack((x_data[:,:,0], np.zeros(x_data[:,:,0].shape)))
+        for i in range(ncols):
+            data_point = data_points[i]
+
+            # generate the input to the autoencoder
+            x_input = np.dstack((data_point[:,:,0], np.zeros(data_point[:,:,0].shape)))
             x_input = np.expand_dims(x_input, axis=0)
 
-            # retrieve the network prediction given this input 
+            # retrieve the autoencoder prediction
             x_output = self.autoencoder.predict(x_input)[0]
 
             # extract min and max for color scaling
-            vmin = np.min(x_data)
-            vmax = np.max(x_data)
+            vmin = np.min(data_point)
+            vmax = np.max(data_point)
 
             # plot the original sonar data
-            sns.heatmap(x_data[:,:,0], square=True, cmap='jet', 
+            sns.heatmap(data_point[:,:,0], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[0][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(x_data[:,:,0]),
+                        mask=mask(data_point[:,:,0]),
                         cbar=False)
 
             # plot the original bathymetry data
-            sns.heatmap(x_data[:,:,1], square=True, cmap='jet', 
+            sns.heatmap(data_point[:,:,1], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[1][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(x_data[:,:,1]),
                         cbar=False)
 
             # plot the predicted bathymetry data
             sns.heatmap(x_output[:,:,1], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[2][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(x_output[:,:,1]),
                         cbar=False)
 
         fig.suptitle('Predicted Bathymetry (Epoch ' + str(epoch) + ')', fontsize=font_large)
@@ -381,7 +375,7 @@ class AdversarialAutoencoder():
         ax[1][0].yaxis.label.set_size(font_medium)
         ax[2][0].set(ylabel='Predicted \n Bathymetry')
         ax[2][0].yaxis.label.set_size(font_medium)
-        for i in range(sample_num):
+        for i in range(ncols):
             ax[2][i].set(xlabel='Sample '+str(i+1))
             ax[2][i].xaxis.label.set_size(font_medium)
         plt.savefig('data/plots/predicted_epoch' + str(epoch) + '.png')
@@ -438,5 +432,5 @@ if __name__ == '__main__':
     aae = AdversarialAutoencoder()
 
     # train the adversarial autoencoder with specified parameters and data
-    aae.train(x=data, epochs=100, batch_size=32, sample_interval=1)
+    aae.train(data=data, epochs=100, batch_size=32, sample_interval=1)
     aae.save_model()

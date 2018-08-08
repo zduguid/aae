@@ -328,7 +328,7 @@ class Bathymetry():
         depth_threshold_high =   20
 
         # tolerance allows for small amount of missing data (1% of patch)
-        nodata_tolerance = int(0.01*patch_length**2)
+        nodata_tolerance = int(0.01 *patch_length**2)
 
         # sample row and col are maintained to make location-based plots
         sample_rows = []
@@ -367,11 +367,14 @@ class Bathymetry():
                         if min(patch_set) > depth_threshold_low:
 
                             # set nodata_values to the average for better learning
-                            patch_bath[patch_bath == self.nodata_value] = np.average(patch_bath)
+                            patch_bath[patch_bath == self.nodata_value] = np.median(patch_bath)
                             data.append(self._simulate(patch_bath))
                             num_patches += 1
                             sample_rows.append(-row)
                             sample_cols.append(col)
+
+        # conver the list to a numpy array
+        data = np.array(data)
 
         if plot == True:
             # plot locations of where data was simulated
@@ -380,7 +383,7 @@ class Bathymetry():
             # plot subset of data that was simulated
             self._plot_simulated_data(data)
 
-        return np.array(data)
+        return data
 
 
     def _simulate(self, patch):
@@ -392,6 +395,8 @@ class Bathymetry():
             + where the 2nd matrix represents the input bathymetry patch
             + where both matrices have already been normalized
         """
+        # defensive copying of the input patch
+        patch = np.copy(patch)
         # the matrix dimensions of the bathymetry patch
         patch_length = patch.shape[0]
         # ascent/descent pitch angle in [rad]
@@ -405,7 +410,7 @@ class Bathymetry():
         # dive rate of glider in [m/s]
         dive_rate = horizontal_speed * math.tan(pitch_angle)
         # time to complete one ascent-descent cycle in [s]
-        T = patch_length/horizontal_speed
+        T = patch_length / horizontal_speed
         # randomly selected heading in [rad]
         theta = np.random.uniform(0, 2*np.pi)
 
@@ -458,7 +463,6 @@ class Bathymetry():
         
         # get the min and max values contained by the patch
         patch_set = set(patch.flatten())
-        patch_set.discard(self.nodata_value)
         patch_min = min(patch_set)
         patch_max = max(patch_set)
 
@@ -495,9 +499,9 @@ class Bathymetry():
         sns.set_style('darkgrid')
         g = sns.lmplot('x', 'y', data=df, scatter_kws={'s': 1}, fit_reg=False, size=6, aspect=1.5)
         g.set(yticklabels=[], xticklabels=[])
-        plt.xlabel('Latitude', fontsize=font_medium)
-        plt.ylabel('Longitude', fontsize=font_medium)
-        plt.title('Simulate Sonar Locations', fontsize=font_large)
+        plt.xlabel('Latitude [degrees]', fontsize=font_medium)
+        plt.ylabel('Longitude [degrees]', fontsize=font_medium)
+        plt.title('Simulated Sonar Locations', fontsize=font_large)
         plt.tight_layout()
         plt.savefig('data/plots/simulated_locations.png')
         plt.close()
@@ -512,11 +516,14 @@ class Bathymetry():
 
         # plotting parameters
         ncols = min(4, len(data))
-        data_indices = random.sample(range(len(data)), ncols)
         figsize = (14, 6)
         font_large = 25
         font_medium = 15
         sns.set_style('darkgrid')
+
+        # randomly sample points in the data set
+        data_indices = random.sample(range(len(data)), ncols)
+        data_points  = data[data_indices]
 
         def mask(x):
             return x == 0
@@ -532,24 +539,32 @@ class Bathymetry():
 
         # generate each column of the plot
         for i in range(ncols):
+            data_point = data_points[i]
+
             # extract min and max for color scaling
-            vmin = np.min(data[i][:,:,0])
-            vmax = np.max(data[i][:,:,0])
+            vmin = np.min(data_point)
+            vmax = np.max(data_point)
 
             # plot the sonar simulated data
-            sns.heatmap(data[i][:,:,0], square=True, cmap='jet', 
+            sns.heatmap(data_point[:,:,0], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[0][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(data[i][:,:,0]),
+                        mask=mask(data_point[:,:,0]),
                         cbar=False)
 
             # plot the corresponding patch of bathymetry
-            sns.heatmap(data[i][:,:,1], square=True, cmap='jet', 
+            sns.heatmap(data_point[:,:,1], square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[1][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(data[i][:,:,1]),
                         cbar=False)
 
         fig.suptitle('Simulated Sonar Measurements', fontsize=font_large)
+        ax[0][0].set(ylabel='Sonar Readings')
+        ax[0][0].yaxis.label.set_size(font_medium)
+        ax[1][0].set(ylabel='Bathymetry Patch')
+        ax[1][0].yaxis.label.set_size(font_medium)
+        for i in range(ncols):
+            ax[1][i].set(xlabel='Example ' + str(i+1))
+            ax[1][i].xaxis.label.set_size(font_medium)
         plt.savefig('data/plots/simulated_examples.png')
         plt.close()
