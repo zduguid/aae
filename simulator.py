@@ -453,18 +453,20 @@ class Bathymetry():
                       for i in range(len(t))]
 
         # extract depth values from the coordinates and add some noise
-        sonar_patch_vals = np.array([patch[j,i] for (i,j) in coord_list])
+        sonar_patch_vals  = np.array([patch[j,i] for (i,j) in coord_list])
         sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, len(sonar_patch_vals))
         
-        # calculate mean and standard deviation of simulated depth values
-        sonar_patch_mean = np.mean(sonar_patch_vals)
-        sonar_patch_std  = np.std(sonar_patch_vals)
+        # get the min and max values contained by the patch
+        patch_set = set(patch.flatten())
+        patch_set.discard(self.nodata_value)
+        patch_min = min(patch_set)
+        patch_max = max(patch_set)
 
-        # normalize both the sonar patch and original input patch
-        sonar_patch_vals -= sonar_patch_mean
-        sonar_patch_vals *= 1/sonar_patch_std
-        patch            -= sonar_patch_mean
-        patch            *= 1/sonar_patch_std
+        # perform min-max feature scaling such that all points are in [0,1]
+        sonar_patch_vals -= patch_min
+        sonar_patch_vals *= 1/(patch_max - patch_min)
+        patch            -= patch_min
+        patch            *= 1/(patch_max - patch_min)
 
         # reconstruct the sonar matrix now that values have been normalized
         sonar_patch = np.zeros([patch_length, patch_length])

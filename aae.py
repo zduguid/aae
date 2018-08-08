@@ -11,12 +11,12 @@ from keras.layers import Activation, Embedding, ZeroPadding2D, MaxPooling2D
 from keras.layers import LeakyReLU
 import keras.backend as K
 
-import math, sys, random, warnings
+import math, sys, random, warnings, os
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
-import seaborn as seaborn
+import seaborn as sns
 from pathlib import Path
 from simulator import Bathymetry
 from utils import Animation, BoundingBox, FileFormatError
@@ -32,7 +32,7 @@ class AdversarialAutoencoder():
         self.x_rows  = 80   # number of rows in input
         self.x_cols  = 80   # number of columns in input
         self.x_depth = 2    # two modalities being considered
-        self.z_dim   = 10    # dimension of latent space, TBD
+        self.z_dim   = 10   # dimension of latent space
         self.y_dim   = 1    # dimension of the truth value 
         self.x_shape = (self.x_rows, self.x_cols, self.x_depth)
         self.gen_hidden_dim = 512
@@ -42,28 +42,28 @@ class AdversarialAutoencoder():
 
         # constants for activation and optimizer
         self.leaky = 0.2    # used for leaky rectified linear activation
-        lr = 0.0002         # learning rate, parameter of Adam optimizer
-        b1 = 0.5            # beta_1, parameter of Adam optimizer
-        b2 = 0.999          # beta_2, parameter of Adam optimizer
+        lr = 0.0001         # learning rate (default = 0.001)
+        b1 = 0.5            # beta_1 (default = 0.9)
+        b2 = 0.999          # beta_2 (default = 0.999)
         optimizer = Adam(lr, b1, b2)
 
         
         # build the networks involved in the adversarial autoencoder
-        #   generator       (x -> z)
+        #   encoder         (x -> z)
         #   decoder         (z -> x)
         #   autoencoder     (x -> x')
         #   discriminator   (z -> y)
-        #       + discriminator trainable is set to False because generator
+        #       + discriminator trainable is set to False because encoder
         #         and discriminator are trained in alternating phases
-        self.generator     = self.build_generator()
+        self.encoder       = self.build_encoder()
         self.decoder       = self.build_decoder()
-        self.autoencoder   = Model(self.generator.inputs, self.decoder(self.generator(self.generator.inputs)))
+        self.autoencoder   = Model(self.encoder.inputs, self.decoder(self.encoder(self.encoder.inputs)))
         self.discriminator = self.build_discriminator()
         self.discriminator.trainable = False
 
         # build the advarsarial autoencoder
         x      = Input(shape=self.x_shape)
-        z      = self.generator(x)
+        z      = self.encoder(x)
         x_pred = self.decoder(z)
         y_fake = self.discriminator(z)
         self.aae = Model(x, [x_pred, y_fake])
@@ -78,31 +78,32 @@ class AdversarialAutoencoder():
                                    metrics=['accuracy'])
 
         # print a summary of the models
-        self.generator.summary()
+        self.encoder.summary()
         self.decoder.summary()
+        self.autoencoder.summary()
         self.discriminator.summary()
         self.aae.summary()
 
 
-    def build_generator(self):
+    def build_encoder(self):
         """
-        builds the generator neural network
+        builds the encoder neural network
             + a GAN's generator is the same as an Autoencoder's encoder
             + transforms input (x) to latent variable (z)
-            + mu and log(sigma^2) are used to help stabilize learning
-        :returns: the generator
+            + log(sigma^2) is used instead of sigma to stabilize learning
+        :returns: the encoder
         """
         # input
-        x = Input(shape=self.x_shape, name='generator_x')
+        x = Input(shape=self.x_shape, name='encoder_x')
 
         # build the hidden layers
         h = Flatten()(x)
-        h = Dense(self.gen_hidden_dim, name='generator_h1')(h)
+        h = Dense(self.gen_hidden_dim, name='encoder_h1')(h)
         h = LeakyReLU(alpha=self.leaky)(h)
-        h = Dense(self.gen_hidden_dim, name='generator_h2')(h)
+        h = Dense(self.gen_hidden_dim, name='encoder_h2')(h)
         h = LeakyReLU(alpha=self.leaky)(h)
-        mu = Dense(self.z_dim, name='generator_mu')(h)
-        log_sigma_sq = Dense(self.z_dim, name='generator_log_sigma_sq')(h)
+        mu = Dense(self.z_dim, name='encoder_mu')(h)
+        log_sigma_sq = Dense(self.z_dim, name='encoder_log_sigma_sq')(h)
 
         # function to transforms mu and log(sigma^2) into z representation
         def get_z(args):
@@ -112,14 +113,13 @@ class AdversarialAutoencoder():
         # get z representation from mu and log(sigma^2)
         z = Lambda(get_z)([mu, log_sigma_sq])
 
-        return Model(x, z, name='generator')
+        return Model(x, z, name='encoder')
 
 
     def build_decoder(self):
         """
         builds the decoder neural network
             + transforms latent variable (z) into reconstructed input (x')
-            + hanging last dimension for Input's shape is for mini-batch size
         :returns: the decoder
         """
         # initialize the model
@@ -144,8 +144,7 @@ class AdversarialAutoencoder():
         """
         build the discriminator neural network
             + transforms latent variable (z) into truth value (y)
-            + hanging last dimension for Input's shape is for mini-batch size
-        :return: the discriminator
+        :returns: the discriminator
         """
         # initialize the model
         model = Sequential()
@@ -164,56 +163,65 @@ class AdversarialAutoencoder():
         return Model(z, y, name='discriminator')
 
 
-    def train(self, x, epochs, batch_size=32, sample_interval=50):
+    def train(self, x, epochs, batch_size=32, sample_interval=1):
         """
         trains the AAE network by alternating between two phases:
-            1) reconstruction phase: update generator and decoder to 
+            1) reconstruction phase: update encoder and decoder to 
                 minimize reconstruction error 
             2) regularization phase: update discriminator to distinguish true 
-                samples from generated, update generator to fool discriminator
+                samples from generated, update encoder to fool discriminator
         :param x: the training data
-        :param epochs: the number of epochs or passes through the data
-        :param batch_size: the number of training examples in one batch
-        :param sample_interval: determines when sample of model is taken
+        :param epochs: the number of passes through the data
+        :param batch_size: the number of training examples in a training batch
+        :param sample_interval: frequency of generating a test sample
         """
-        # TODO fix epoch formulation
-        """
-        We can divide the dataset of 2000 examples into batches of 500 
-        then it will take 4 iterations to complete 1 epoch
-        """
-        # train for specified number of epochs
+        if self.animations: print('>> training network')
+
+        # pass through entire data set a specified number of times
         for epoch in range(epochs):
 
-            # get a batch of data points
-            x_indices = np.random.randint(0, x.shape[0], batch_size)
-            x_batch   = x[x_indices]
+            # randomize order that data is presented for a given epoch
+            epoch_i = random.sample(range(len(x)), len(x))
 
-            # train the discriminator and then the generator
-            dis_loss = self._train_discriminator(x_batch)
-            gen_loss = self._train_generator(x_batch)
-            
-            if self.animations:
-                d_loss = str(round(dis_loss[0], 3))
-                d_acc  = str(round(dis_loss[1]*100, 3))
-                g_loss = str(round(gen_loss[0], 3))
-                g_mse  = str(round(gen_loss[1], 3))
-                print("%d [D loss: %s, acc: %s%%] [G loss: %s, mse: %s]" % 
-                      (epoch, d_loss, d_acc, g_loss, g_mse))
+            # train the network in batches of size batch_size
+            for j in range(0, len(epoch_i), batch_size):
 
+                # get the batch of data points for one training update
+                x_batch = x[epoch_i[j : j+batch_size]]
+
+                # train the discriminator and then the encoder
+                dis_loss = self._train_discriminator(x_batch)
+                gen_loss = self._train_encoder(x_batch)
+                
+                # print out loss statistics for the training iteration
+                if self.animations:
+                    d_loss = str(round(dis_loss[0], 3))
+                    d_acc  = str(round(dis_loss[1]*100, 3))
+                    g_loss = str(round(gen_loss[0], 3))
+                    g_mse  = str(round(gen_loss[1], 3))
+                    print("%d [D loss: %s, acc: %s%%] [G loss: %s, mse: %s]" % 
+                          (epoch, d_loss, d_acc, g_loss, g_mse))
+
+            # generate example predictions at specified interval
             if epoch % sample_interval == 0:
-                pass
+                
+                # get sampled data points by sampling from p(z)
+                self._get_samples(epoch + 1)
+
+                # get predicted bathymetry values using sonar alone
+                self._get_predictions(epoch + 1, data)
 
 
-    def _train_generator(self, x_batch):
+    def _train_encoder(self, x_batch):
         """
-        trains the generator on a batch of data
+        trains the encoder on a batch of data
         """
         batch_size = len(x_batch)
 
-        # get real y values to train generator 
+        # adversarial ground truth 
         y_real = np.ones((batch_size, 1))
         
-        # return the loss of the generator
+        # return the loss of the encoder
         return self.aae.train_on_batch(x_batch, [x_batch, y_real])
 
 
@@ -223,13 +231,13 @@ class AdversarialAutoencoder():
         """
         batch_size = len(x_batch)
         
-        # get real and fake y values to train discriminator 
+        # adversarial ground truths 
         y_real = np.ones((batch_size, 1))
         y_fake = np.zeros((batch_size, 1))
 
         # get real and fake z values to train discriminator
         z_real = np.random.normal(size=(batch_size, self.z_dim))
-        z_fake = self.generator.predict(x_batch)
+        z_fake = self.encoder.predict(x_batch)
         
         # train discriminator on real and fake data
         dis_loss_real = self.discriminator.train_on_batch(z_real, y_real)
@@ -239,20 +247,169 @@ class AdversarialAutoencoder():
         return 0.5 * np.add(dis_loss_fake, dis_loss_fake)
 
 
-    def generate_samples(self, epoch):
+    def _get_samples(self, epoch):
         """
-        TODO write specification
+        generates sample data points by sampling z values from p(z)
+        :param epochs: the epoch at which the samples are generated 
         """
-        # TODO implement this function
-        pass
+        # plotting parameters 
+        sample_num = 4
+        figsize = (14, 6)
+        font_large = 25
+        font_medium = 15
+        sns.set_style('darkgrid')
+
+        def mask(x):
+            return x == 0
+
+        fig, ax = plt.subplots(figsize=figsize, ncols=sample_num, nrows=2)
+
+        plt.subplots_adjust(left    =  0.1,     # left side location
+                            bottom  =  0.1,     # bottom side location
+                            right   =  0.9,     # right side location
+                            top     =  0.9,     # top side location
+                            wspace  =  0.6,     # horizontal gap
+                            hspace  =  0.05)    # vertical gap 
+
+        # generate each column of the plot
+        for i in range(sample_num):
+            
+            # sample from p(z) and generate x_pred with the decoder
+            z_sample = np.random.normal(size=(1, self.z_dim))
+            x_sample = self.decoder.predict(z_sample)[0]
+
+            # extract min and max for color scaling
+            vmin = np.min(x_sample)
+            vmax = np.max(x_sample)
+
+            # plot the sampled sonar data
+            sns.heatmap(x_sample[:,:,0], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[0][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(x_sample[:,:,0]),
+                        cbar=False)
+
+            # plot the sampled bathymetry data
+            sns.heatmap(x_sample[:,:,1], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[1][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(x_sample[:,:,1]),
+                        cbar=False)
+
+        fig.suptitle('Sampled Bathymetry (Epoch ' + str(epoch) + ')', fontsize=font_large)
+        ax[0][0].set(ylabel='Sonar \n Measurements')
+        ax[0][0].yaxis.label.set_size(font_medium)
+        ax[1][0].set(ylabel='Bathymetry \n Patch')
+        ax[1][0].yaxis.label.set_size(font_medium)
+        for i in range(sample_num):
+            ax[1][i].set(xlabel='Sample '+str(i+1))
+            ax[1][i].xaxis.label.set_size(font_medium)
+        plt.savefig('data/plots/sampled_epoch' + str(epoch) + '.png')
+        plt.close()
+
+
+    def _get_predictions(self, epoch, data):
+        """
+        generates predictions of bathymetry patches using given data
+        :param epochs: the epoch at which the predictions are generated
+        :param data: the data to be randomly sampled to make predictions 
+        """
+        # plotting parameters
+        sample_num = 4
+        figsize = (14, 8)
+        font_large = 25
+        font_medium = 15
+        sns.set_style('darkgrid')
+
+        def mask(x):
+            return x == 0
+
+        fig, ax = plt.subplots(figsize=figsize, ncols=sample_num, nrows=3)
+
+        plt.subplots_adjust(left    =  0.1,     # left side location
+                            bottom  =  0.1,     # bottom side location
+                            right   =  0.9,     # right side location
+                            top     =  0.9,     # top side location
+                            wspace  =  0.6,     # horizontal gap
+                            hspace  =  0.05)    # vertical gap 
+
+        # sample random points in the data set
+        data_indices = random.sample(range(len(data)), sample_num)
+
+        # generate each column of the plot
+        for i in range(sample_num):
+            
+            # extract the data point
+            x_data = data[data_indices[i]]
+            
+            # knockout the multibeam bathymetry modality
+            x_input = np.dstack((x_data[:,:,0], np.zeros(x_data[:,:,0].shape)))
+            x_input = np.expand_dims(x_input, axis=0)
+
+            # retrieve the network prediction given this input 
+            x_output = self.autoencoder.predict(x_input)[0]
+
+            # extract min and max for color scaling
+            vmin = np.min(x_data)
+            vmax = np.max(x_data)
+
+            # plot the original sonar data
+            sns.heatmap(x_data[:,:,0], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[0][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(x_data[:,:,0]),
+                        cbar=False)
+
+            # plot the original bathymetry data
+            sns.heatmap(x_data[:,:,1], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[1][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(x_data[:,:,1]),
+                        cbar=False)
+
+            # plot the predicted bathymetry data
+            sns.heatmap(x_output[:,:,1], square=True, cmap='jet', 
+                        vmin=vmin, vmax=vmax, ax=ax[2][i],
+                        xticklabels=False, yticklabels=False,
+                        mask=mask(x_output[:,:,1]),
+                        cbar=False)
+
+        fig.suptitle('Predicted Bathymetry (Epoch ' + str(epoch) + ')', fontsize=font_large)
+        ax[0][0].set(ylabel='Original \n Sonar Readings')
+        ax[0][0].yaxis.label.set_size(font_medium)
+        ax[1][0].set(ylabel='Original \n Bathymetry')
+        ax[1][0].yaxis.label.set_size(font_medium)
+        ax[2][0].set(ylabel='Predicted \n Bathymetry')
+        ax[2][0].yaxis.label.set_size(font_medium)
+        for i in range(sample_num):
+            ax[2][i].set(xlabel='Sample '+str(i+1))
+            ax[2][i].xaxis.label.set_size(font_medium)
+        plt.savefig('data/plots/predicted_epoch' + str(epoch) + '.png')
+        plt.close()
 
 
     def save_model(self):
         """
-        TODO write specification
+        saves all neural networks involved in the adversarial autoencoder
         """
-        # TODO implement this function
-        pass
+        # helper function that saves model with name
+        def save(model, name):
+            # generate file paths for writing files
+            path_model   = 'data/models/%s.json' % name
+            path_weights = 'data/models/%s_weights.hdf5' % name
+            options = {'file_arch'   : path_model,
+                       'file_weight' : path_weights}
+
+            # write to files accordingly
+            json_string = model.to_json()
+            open(options['file_arch'], 'w').write(json_string)
+            model.save_weights(options['file_weight'])
+
+        # save each model in the aae
+        save(self.encoder,       'aae_encoder')
+        save(self.decoder,       'aae_decoder')
+        save(self.autoencoder,   'aae_autoencoder')
+        save(self.discriminator, 'aae_discriminator')
 
 
 if __name__ == '__main__':
@@ -272,10 +429,14 @@ if __name__ == '__main__':
                             n_lim =   20.01, 
                             s_lim =   19.84)
 
-    # ignore specific warning that is thrown due to the nature of AAE structure
+    # load a bathymetry file and simulate glider sonar data
+    bath = Bathymetry.load_file(falkor_file, falkor_bb)
+    data = bath.simulate_sonar_data(n=100, plot=True)
+
+    # construct the adversarial autoencoder
     warnings.filterwarnings(action='once', message='Discrepancy between trainable weights and collected trainable')
     aae = AdversarialAutoencoder()
 
-    # load the data and begin training
-    data = np.load('data/simulated/sonar_medium_80.npy')
-    aae.train(x=data, epochs=1000, batch_size=32, sample_interval=10)
+    # train the adversarial autoencoder with specified parameters and data
+    aae.train(x=data, epochs=100, batch_size=32, sample_interval=1)
+    aae.save_model()
