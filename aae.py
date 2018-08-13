@@ -32,7 +32,7 @@ class AdversarialAutoencoder():
         self.x_rows  = 80   # number of rows in input
         self.x_cols  = 80   # number of columns in input
         self.x_depth = 2    # two modalities being considered
-        self.z_dim   = 10   # dimension of latent space
+        self.z_dim   = 100  # dimension of latent space
         self.y_dim   = 1    # dimension of the truth value 
         self.x_shape = (self.x_rows, self.x_cols, self.x_depth)
         self.gen_hidden_dim = 512
@@ -57,7 +57,8 @@ class AdversarialAutoencoder():
         #         and discriminator are trained in alternating phases
         self.encoder       = self.build_encoder()
         self.decoder       = self.build_decoder()
-        self.autoencoder   = Model(self.encoder.inputs, self.decoder(self.encoder(self.encoder.inputs)))
+        self.autoencoder   = Model(self.encoder.inputs, 
+                                   self.decoder(self.encoder(self.encoder.inputs)))
         self.discriminator = self.build_discriminator()
         self.discriminator.trainable = False
 
@@ -425,12 +426,13 @@ if __name__ == '__main__':
 
     # load a bathymetry file and simulate glider sonar data
     bath = Bathymetry.load_file(falkor_file, falkor_bb)
-    data = bath.simulate_sonar_data(n=100, plot=True)
+    data = bath.simulate_sonar_data(n=5000, plot=True)
+    np.save('data/simulated/medium_5m.npy', data)
 
     # construct the adversarial autoencoder
     warnings.filterwarnings(action='once', message='Discrepancy between trainable weights and collected trainable')
     aae = AdversarialAutoencoder()
 
     # train the adversarial autoencoder with specified parameters and data
-    aae.train(data=data, epochs=100, batch_size=32, sample_interval=1)
+    aae.train(data=data, epochs=500, batch_size=32, sample_interval=1)
     aae.save_model()

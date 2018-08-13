@@ -5,7 +5,6 @@
 import math, sys, random
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
@@ -102,8 +101,8 @@ class Bathymetry():
             if save:
                 # filename is required have .asc extension (hence the value -4)
                 ext_len = -4
-                bath_header_file =    self.filename[:ext_len] + '_header.npy'
-                bath_multibeam_file = self.filename[:ext_len] + '_multibeam.npy'
+                bath_header_file =    self.filename[:ext_len]+'_header.npy'
+                bath_multibeam_file = self.filename[:ext_len]+'_multibeam.npy'
 
                 # save the header and multibeam files
                 if self.animations: print('>> saving file')
@@ -170,7 +169,8 @@ class Bathymetry():
                 raise FileFormatError('invalid number of cols')
 
             # store each new row of data in the array
-            self.multibeam[body_i] = np.array([self._parse_number(s) for s in body_line.split()])
+            self.multibeam[body_i] = np.array([self._parse_number(s) 
+                                               for s in body_line.split()])
             body_i += 1
             body_line = file.readline()
 
@@ -222,7 +222,7 @@ class Bathymetry():
         self.multibeam = multibeam
 
 
-    def plot_bathymetry(self, title='Bathymetry Data', bb=None, resolution='default'):
+    def plot_bathymetry(self, title='Bathymetry Data', bb=None, resolution=''):
         """
         extracts and plots a rectangle of bathymetry
         :param title: the title of the created plot
@@ -245,10 +245,14 @@ class Bathymetry():
         if bb != None:
             # get intersection between the data set and input bounding boxes
             bb_int = self.bb.get_intersection(bb)
-            row_min = math.floor(((self.bb.get_n_lim() - bb_int.get_n_lim()) / self.bb.get_lat_range()) * self.nrows)
-            row_max = math.floor(((self.bb.get_n_lim() - bb_int.get_s_lim()) / self.bb.get_lat_range()) * self.nrows)
-            col_min = math.floor(((bb_int.get_w_lim() - self.bb.get_w_lim()) / self.bb.get_lon_range()) * self.ncols)
-            col_max = math.floor(((bb_int.get_e_lim() - self.bb.get_w_lim()) / self.bb.get_lon_range()) * self.ncols)
+            row_min = math.floor(((self.bb.get_n_lim() - bb_int.get_n_lim())  
+                                 / self.bb.get_lat_range()) * self.nrows)
+            row_max = math.floor(((self.bb.get_n_lim() - bb_int.get_s_lim())  
+                                 / self.bb.get_lat_range()) * self.nrows)
+            col_min = math.floor(((bb_int.get_w_lim()  - self.bb.get_w_lim())
+                                 / self.bb.get_lon_range()) * self.ncols)
+            col_max = math.floor(((bb_int.get_e_lim()  - self.bb.get_w_lim())
+                                 / self.bb.get_lon_range()) * self.ncols)
         
         # default behavior (bb not given) is to plot all of the data
         else:
@@ -294,7 +298,8 @@ class Bathymetry():
                          xticklabels=True, yticklabels=True, 
                          cbar_kws={'label': 'Depth [Meters]'})
         ax.figure.axes[-1].yaxis.label.set_size(font_medium)
-        ax.figure.axes[-1].set_yticklabels(ax.figure.axes[-1].get_yticklabels(), size=font_small)
+        ax.figure.axes[-1].set_yticklabels(ax.figure.axes[-1].get_yticklabels(), 
+                                           size=font_small)
 
         # set title, axis labels, and tick labels
         ax.set_title(title, fontsize=font_large)
@@ -302,8 +307,10 @@ class Bathymetry():
         ax.set_ylabel('Latitude [degrees]', fontsize=font_medium)
         ax.set_xticks(ax.get_xticks()[int(x_tick_spacing/2)::x_tick_spacing])
         ax.set_yticks(ax.get_yticks()[int(y_tick_spacing/2)::y_tick_spacing])
-        ax.set_xticklabels([str(round(self.bb.get_lon(a/cols), 2)) for a in ax.get_xticks()], rotation=0, fontsize=font_small)
-        ax.set_yticklabels([str(round(self.bb.get_lat(a/rows), 2)) for a in ax.get_yticks()], fontsize=font_small)
+        ax.set_xticklabels([str(round(self.bb.get_lon(a/cols), 2))
+                            for a in ax.get_xticks()], fontsize=font_small)
+        ax.set_yticklabels([str(round(self.bb.get_lat(a/rows), 2))
+                            for a in ax.get_yticks()], fontsize=font_small)
         fig.savefig('data/plots/5m_' + resolution + '.png')
         plt.close()
 
@@ -314,7 +321,7 @@ class Bathymetry():
         :param n: number of data points to be produced
         :param patch_length: size of matrix to represent 5m-gridded bathymetry
         :param plot: indicates whether or not simulated data is plotted
-        :returns: an array of data points where each point is a 3D stacked matrix
+        :returns: an array of data points where each point is a 3D matrix
             + where the 1st matrix represents the simulated sonar patch
             + where the 2nd matrix represents the input bathymetry patch 
         """
@@ -339,8 +346,10 @@ class Bathymetry():
         while num_patches < n:
 
             # randomly sample a patch of bathymetry
-            col = np.random.randint(patch_buffer, self.multibeam.shape[1] - patch_buffer)
-            row = np.random.randint(patch_buffer, self.multibeam.shape[0] - patch_buffer)
+            col = np.random.randint(patch_buffer, 
+                                    self.multibeam.shape[1] - patch_buffer)
+            row = np.random.randint(patch_buffer, 
+                                    self.multibeam.shape[0] - patch_buffer)
             patch_bath = self.multibeam[row-patch_buffer:row+patch_buffer, 
                                         col-patch_buffer:col+patch_buffer]
 
@@ -359,15 +368,17 @@ class Bathymetry():
 
                     # get next lowest value if frequency is low enough
                     unique, counts = np.unique(patch_bath, return_counts=True)
-                    if unique[0] == self.nodata_value and counts[0] < nodata_tolerance:
+                    if (unique[0] == self.nodata_value and 
+                        counts[0] < nodata_tolerance):
                         patch_set = set(patch_bath.flatten())
                         patch_set.remove(self.nodata_value)
 
                         # when samples not too deep they are valid samples
                         if min(patch_set) > depth_threshold_low:
 
-                            # set nodata_values to the average for better learning
-                            patch_bath[patch_bath == self.nodata_value] = np.median(patch_bath)
+                            # set nodata to the median for stable learning
+                            median = np.median(patch_bath)
+                            patch_bath[patch_bath==self.nodata_value] = median
                             data.append(self._simulate(patch_bath))
                             num_patches += 1
                             sample_rows.append(-row)
@@ -378,7 +389,8 @@ class Bathymetry():
 
         if plot == True:
             # plot locations of where data was simulated
-            self._plot_sample_locations(sample_cols, sample_rows)
+            self._plot_sample_locations(sample_cols, sample_rows, 
+                                        self.multibeam.shape)
 
             # plot subset of data that was simulated
             self._plot_simulated_data(data)
@@ -453,13 +465,16 @@ class Bathymetry():
         s_y_t += np.random.normal(local_mu, local_sig, len(t)) 
 
         # generate index coordinate list of the sonar readings
-        coord_list = [(max(min(math.floor(s_x_t[i] + patch_length/2), patch_length - 1), 0),
-                       max(min(math.floor(s_y_t[i] + patch_length/2), patch_length - 1), 0))
+        coord_list = [(max(min(math.floor(s_x_t[i] + patch_length/2), 
+                               patch_length - 1), 0),
+                       max(min(math.floor(s_y_t[i] + patch_length/2), 
+                               patch_length - 1), 0))
                       for i in range(len(t))]
 
         # extract depth values from the coordinates and add some noise
         sonar_patch_vals  = np.array([patch[j,i] for (i,j) in coord_list])
-        sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, len(sonar_patch_vals))
+        sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, 
+                                             len(sonar_patch_vals))
         
         # get the min and max values contained by the patch
         patch_set = set(patch.flatten())
@@ -482,10 +497,10 @@ class Bathymetry():
         return np.dstack((sonar_patch, patch))
 
 
-    def _plot_sample_locations(self, sample_col, sample_row):
+    def _plot_sample_locations(self, sample_col, sample_row, bath_shape):
         """
         plots the longitude-latitude locations of where samples were taken
-        :param sample_col: index list of the column where each sample was taken
+        :param sample_col: index list of the col where each sample was taken
         :param sample_row: index list of the row where each sample was taken
         """
         # plotting parameters
@@ -494,11 +509,27 @@ class Bathymetry():
         df = pd.DataFrame()
         df['x'] = sample_col
         df['y'] = sample_row
+        x_tick_num = 5
+        y_tick_num = 5
+
+        # setting label tick spacing
+        rows = bath_shape[0]
+        cols = bath_shape[1]
+        x_tick_spacing = math.ceil(cols/(x_tick_num+1))
+        y_tick_spacing = math.ceil(rows/(y_tick_num+1))
+        y_ticks = range(rows)[int(y_tick_spacing/2)::y_tick_spacing][::-1]
+        x_ticks = range(cols)[int(x_tick_spacing/2)::x_tick_spacing]
+        y_ticks = [str(round(self.bb.get_lat(a/rows), 2)) for a in y_ticks]
+        x_ticks = [str(round(self.bb.get_lon(a/cols), 2)) for a in x_ticks]
 
         # generate plot
+        fig = plt.figure()
         sns.set_style('darkgrid')
-        g = sns.lmplot('x', 'y', data=df, scatter_kws={'s': 1}, fit_reg=False, size=6, aspect=1.5)
-        g.set(yticklabels=[], xticklabels=[])
+        g = sns.lmplot('x', 'y', data=df, fit_reg=False, size=6, aspect=1.5,
+                       scatter_kws={'s': 1})
+        g.set(yticks=range(-rows,0)[int(y_tick_spacing/2)::y_tick_spacing],
+              xticks=range(cols)[int(x_tick_spacing/2)::x_tick_spacing],
+              yticklabels=y_ticks, xticklabels=x_ticks)
         plt.xlabel('Latitude [degrees]', fontsize=font_medium)
         plt.ylabel('Longitude [degrees]', fontsize=font_medium)
         plt.title('Simulated Sonar Locations', fontsize=font_large)
