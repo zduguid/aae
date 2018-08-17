@@ -32,7 +32,7 @@ class AdversarialAutoencoder():
         self.x_rows  = 80   # number of rows in input
         self.x_cols  = 80   # number of columns in input
         self.x_depth = 2    # two modalities being considered
-        self.z_dim   = 100  # dimension of latent space
+        self.z_dim   = 500  # dimension of latent space
         self.y_dim   = 1    # dimension of the truth value 
         self.x_shape = (self.x_rows, self.x_cols, self.x_depth)
         self.gen_hidden_dim = 512
@@ -204,7 +204,7 @@ class AdversarialAutoencoder():
                           (epoch, d_loss, d_acc, g_loss, g_mse))
 
             # generate example predictions at specified interval
-            if epoch % sample_interval == 0:
+            if epoch+1 % sample_interval == 0:
                 
                 # get sampled data points by sampling from p(z)
                 self._get_samples(epoch + 1)
@@ -298,7 +298,7 @@ class AdversarialAutoencoder():
         ax[0][0].set(ylabel='Sonar \n Measurements')
         ax[0][0].yaxis.label.set_size(font_medium)
         ax[1][0].set(ylabel='Bathymetry \n Patch')
-        ax[1][0].yaxis.label.set_size(ncols)
+        ax[1][0].yaxis.label.set_size(font_medium)
         for i in range(ncols):
             ax[1][i].set(xlabel='Example '+str(i+1))
             ax[1][i].xaxis.label.set_size(font_medium)
@@ -426,13 +426,12 @@ if __name__ == '__main__':
 
     # load a bathymetry file and simulate glider sonar data
     bath = Bathymetry.load_file(falkor_file, falkor_bb)
-    data = bath.simulate_sonar_data(n=5000, plot=True)
-    np.save('data/simulated/medium_5m.npy', data)
+    data = np.load('data/simulated/medium_5m.npy')
 
     # construct the adversarial autoencoder
     warnings.filterwarnings(action='once', message='Discrepancy between trainable weights and collected trainable')
     aae = AdversarialAutoencoder()
 
     # train the adversarial autoencoder with specified parameters and data
-    aae.train(data=data, epochs=500, batch_size=32, sample_interval=1)
+    aae.train(data=data, epochs=500, batch_size=32, sample_interval=50)
     aae.save_model()
