@@ -315,35 +315,45 @@ class Bathymetry():
         plt.close()
 
 
-    def simulate_sonar_data(self, n, patch_length=80, plot=False):
+    def simulate_sonar_data(self, n, patch_length=50, plot=False):
         """
         simulates example sonar data readings to mimic AUG scanning sonar
         :param n: number of data points to be produced
         :param patch_length: size of matrix to represent 5m-gridded bathymetry
         :param plot: indicates whether or not simulated data is plotted
-        :returns: an array of data points where each point is a 3D matrix
-            + where the 1st matrix represents the simulated sonar patch
-            + where the 2nd matrix represents the input bathymetry patch 
+        :returns: a tuple of arrays where
+            + the first  array is n patches of ground truth bathymetry
+            + the second array is n patches of simulated sonar readings
         """
         # initialize data array
         if self.animations: print('>> simulating data')
-        patch_buffer = int(patch_length/2)
-        data = []
+
+        # data arrays used to maintain valid samples
+        data_bath  = []
+        data_sonar = []
 
         # depth allowed allowed in patch (enforces operational feasibility)
         depth_threshold_low  = -150
         depth_threshold_high =   20
+        patch_buffer = int(patch_length/2)
 
-        # tolerance allows for small amount of missing data (1% of patch)
-        nodata_tolerance = int(0.01 *patch_length**2)
+        # tolerance allows for small amount of missing data (1% of patch area)
+        nodata_tolerance = int(0.01 * patch_length**2)
 
         # sample row and col are maintained to make location-based plots
         sample_rows = []
         sample_cols = []
-        num_patches = 0
+
+        # helper function to simulate a sample and update plotting parameters
+        def add_new_sample(patch_bath):
+            point_bath, point_sonar = self._simulate(patch_bath)
+            data_bath.append(point_bath)
+            data_sonar.append(point_sonar)
+            sample_rows.append(-row)
+            sample_cols.append(col)
 
         # perform random sampling until specified amount of data acquired
-        while num_patches < n:
+        while len(data_bath) < n:
 
             # randomly sample a patch of bathymetry
             col = np.random.randint(patch_buffer, 
@@ -358,10 +368,7 @@ class Bathymetry():
 
                 # when samples not too deep they are valid samples
                 if np.min(patch_bath) > depth_threshold_low:
-                    data.append(self._simulate(patch_bath))
-                    num_patches += 1
-                    sample_rows.append(-row)
-                    sample_cols.append(col)  
+                    add_new_sample(patch_bath) 
 
                 # otherwise count the frequency of the nodata_value
                 else:
@@ -379,13 +386,11 @@ class Bathymetry():
                             # set nodata to the median for stable learning
                             median = np.median(patch_bath)
                             patch_bath[patch_bath==self.nodata_value] = median
-                            data.append(self._simulate(patch_bath))
-                            num_patches += 1
-                            sample_rows.append(-row)
-                            sample_cols.append(col)
+                            add_new_sample(patch_bath) 
 
-        # conver the list to a numpy array
-        data = np.array(data)
+        # convert the list to a numpy array
+        data_bath  = np.array(data_bath)
+        data_sonar = np.array(data_sonar)
 
         if plot == True:
             # plot locations of where data was simulated
@@ -393,57 +398,67 @@ class Bathymetry():
                                         self.multibeam.shape)
 
             # plot subset of data that was simulated
-            self._plot_simulated_data(data)
+            self._plot_simulated_data(data_bath, data_sonar)
 
-        return data
+        return data_bath, data_sonar
 
 
-    def _simulate(self, patch):
+    def _simulate(self, patch_bath):
         """
-        simulates sonar readings of the AUG
+        simulates sonar readings to mimic that of real AUG sonar measurements
         :param patch: the bathymetry patch that the AUG is measuring
-        :returns: stacked matrix with shape (path_length, patch_length, 2)
-            + where the 1st matrix represents the simulated sonar patch
-            + where the 2nd matrix represents the input bathymetry patch
-            + where both matrices have already been normalized
+        :returns: two matrices both with shape (path_length, patch_length)
+            + where the 1st matrix represents the sample bathymetry patch
+            + where the 2nd matrix represents the simulated sonar readings
+                + such that both matrices have been scaled to the range [-1,1]
         """
         # defensive copying of the input patch
-        patch = np.copy(patch)
+        patch_bath = np.copy(patch_bath)
         # the matrix dimensions of the bathymetry patch
-        patch_length = patch.shape[0]
+        patch_length = patch_bath.shape[0]
         # ascent/descent pitch angle in [rad]
         pitch_angle = 0.45
         # depth band in [m]
-        depth_band = (patch_length/2) / math.tan(pitch_angle)
+        depth_band = (patch_length/1.5) / math.tan(pitch_angle)
         # resolution of grid in [m]
         grid = 5 
         # horizontal glider speed in [m/s]
-        horizontal_speed = 1 
+        horizontal_speed = 1
         # dive rate of glider in [m/s]
         dive_rate = horizontal_speed * math.tan(pitch_angle)
         # time to complete one ascent-descent cycle in [s]
         T = patch_length / horizontal_speed
         # randomly selected heading in [rad]
-        theta = np.random.uniform(0, 2*np.pi)
+        theta0 = np.random.uniform(0, 2*np.pi)
 
         # other constants used when simulating data
-        z0          = depth_band / grid
+        z0          = depth_band * 1.15 / grid
         s0          = 0.1*z0
         s           = s0
         peaks_num   = 10
         peaks_gain  = 2
-        delta_s     = dive_rate
         local_mu    = 0
         local_sig   = patch_length*0.003
         sonar_mu    = 0
         sonar_sig   = 0.1
+        delta_s     = dive_rate
+        delta_mu    = 0
+        delta_sig   = 0.03 
+        theta_mu    = 0
+        theta_sig   = 0.4
+        d_theta     = abs(np.random.normal(theta_mu, theta_sig))
+        bias_window = 1/4
+        max_bias    = int(patch_length*bias_window)
+        x_bias      = np.random.choice(range(-max_bias, max_bias))
+        y_bias      = np.random.choice(range(-max_bias, max_bias))
 
         # parameterization of glider motion
-        t   = np.linspace(-T/2, T/2, peaks_num*patch_length)
-        x_t = t * horizontal_speed * math.cos(theta)
-        y_t = t * horizontal_speed * math.sin(theta) 
-        z_t = z0 - np.absolute(t)  * dive_rate
-        s_t = np.array([s0])
+        t     = np.linspace(-T/2, T/2, peaks_num*patch_length)
+        theta = np.linspace(theta0-d_theta/2, theta0+d_theta/2, len(t))
+        x_t   = t * horizontal_speed * np.cos(theta)
+        y_t   = t * horizontal_speed * np.sin(theta) 
+        z_t   = z0 - np.absolute(t)  * dive_rate
+        s_t   = np.array([s0])
 
         # calculate scanning sonar motion in the local frame
         for i in range(len(t)-1):
@@ -451,50 +466,53 @@ class Bathymetry():
             # direction of scanning sonar motion changes
             if np.absolute(s + delta_s) >= (np.absolute(z_t[i+1]) + s0):
                 delta_s *= -1
+                delta_s += np.random.normal(delta_mu, delta_sig)
 
             # update the state of the scanning sonar in the local frame
             s  += delta_s
             s_t = np.append(s_t, s*peaks_gain)
 
         # convert sonar motion from local frame to intertial frame
-        s_x_t = x_t + s_t * math.sin(theta)
-        s_y_t = y_t - s_t * math.cos(theta)
+        s_x_t = x_t + s_t * np.sin(theta) + x_bias
+        s_y_t = y_t - s_t * np.cos(theta) + y_bias
 
         # add some random noise to the location of the sonar readings
         s_x_t += np.random.normal(local_mu, local_sig, len(t))
         s_y_t += np.random.normal(local_mu, local_sig, len(t)) 
 
         # generate index coordinate list of the sonar readings
-        coord_list = [(max(min(math.floor(s_x_t[i] + patch_length/2), 
-                               patch_length - 1), 0),
-                       max(min(math.floor(s_y_t[i] + patch_length/2), 
-                               patch_length - 1), 0))
-                      for i in range(len(t))]
+        coord_list = []
+        for i in range(len(t)):
+            x = math.floor(s_x_t[i] + patch_length/2)
+            y = math.floor(s_y_t[i] + patch_length/2)
+
+            # only include coordinates within the correct range
+            if ((x >= 0) and (x <= patch_length - 1) and 
+                (y >= 0) and (y <= patch_length - 1)):
+                coord_list.append((x,y))
 
         # extract depth values from the coordinates and add some noise
-        sonar_patch_vals  = np.array([patch[j,i] for (i,j) in coord_list])
-        sonar_patch_vals += np.random.normal(sonar_mu, sonar_sig, 
-                                             len(sonar_patch_vals))
+        patch_sonar_vals  = np.array([patch_bath[j,i] for (i,j) in coord_list])
+        patch_sonar_vals += np.random.normal(sonar_mu, sonar_sig, 
+                                             len(patch_sonar_vals))
         
         # get the min and max values contained by the patch
-        patch_set = set(patch.flatten())
-        patch_min = min(patch_set)
-        patch_max = max(patch_set)
+        patch_min = np.min(patch_bath)
+        patch_max = np.max(patch_bath)
 
-        # perform min-max feature scaling such that all points are in [0,1]
-        sonar_patch_vals -= patch_min
-        sonar_patch_vals *= 1/(patch_max - patch_min)
-        patch            -= patch_min
-        patch            *= 1/(patch_max - patch_min)
+        # perform min-max feature scaling such all values are in range [-1,1]
+        patch_sonar_vals -= (patch_max + patch_min)/2
+        patch_sonar_vals *= 2/(patch_max - patch_min)
+        patch_bath       -= (patch_max + patch_min)/2
+        patch_bath       *= 2/(patch_max - patch_min)
 
-        # reconstruct the sonar matrix now that values have been normalized
-        sonar_patch = np.zeros([patch_length, patch_length])
+        # reconstruct the sonar matrix once features have been scaled
+        patch_sonar = np.zeros([patch_length, patch_length])
         for k in range(len(coord_list)):
             i,j = coord_list[k][0], coord_list[k][1]
-            sonar_patch[j,i] = sonar_patch_vals[k]
+            patch_sonar[j,i] = patch_sonar_vals[k]
 
-        # stack the two matrices to yield one multimodal data point
-        return np.dstack((sonar_patch, patch))
+        return patch_bath, patch_sonar
 
 
     def _plot_sample_locations(self, sample_col, sample_row, bath_shape):
@@ -532,13 +550,13 @@ class Bathymetry():
               yticklabels=y_ticks, xticklabels=x_ticks)
         plt.xlabel('Latitude [degrees]', fontsize=font_medium)
         plt.ylabel('Longitude [degrees]', fontsize=font_medium)
-        plt.title('Simulated Sonar Locations', fontsize=font_large)
+        plt.title('Sample Locations \n (n = ' + str(len(sample_col)) + ')', fontsize=font_large)
         plt.tight_layout()
         plt.savefig('data/plots/simulated_locations.png')
         plt.close()
 
 
-    def _plot_simulated_data(self, data):
+    def _plot_simulated_data(self, data_bath, data_sonar):
         """
         plots the simulated sonar data with the corresponding bathymetry patch
         :param data: the array of data points containing the simulated data
@@ -546,21 +564,24 @@ class Bathymetry():
         if self.animations: print('>> plotting simulated data')
 
         # plotting parameters
-        ncols = min(4, len(data))
+        n = len(data_bath)
+        ncols = min(4, n)
         figsize = (14, 6)
         font_large = 25
         font_medium = 15
         sns.set_style('darkgrid')
 
         # randomly sample points in the data set
-        data_indices = random.sample(range(len(data)), ncols)
-        data_points  = data[data_indices]
+        data_indices = random.sample(range(n), ncols)
+        data_points_bath  = data_bath[data_indices]
+        data_points_sonar = data_sonar[data_indices]
 
+        # mask used for plotting simulated sonar readings
         def mask(x):
             return x == 0
 
+        # initialize the plotting objects
         fig, ax = plt.subplots(figsize=figsize, ncols=ncols, nrows=2)
-
         plt.subplots_adjust(left    =  0.1,     # left side location
                             bottom  =  0.1,     # bottom side location
                             right   =  0.9,     # right side location
@@ -570,29 +591,32 @@ class Bathymetry():
 
         # generate each column of the plot
         for i in range(ncols):
-            data_point = data_points[i]
+            point_bath  = data_points_bath[i]
+            point_sonar = data_points_sonar[i]
 
             # extract min and max for color scaling
-            vmin = np.min(data_point)
-            vmax = np.max(data_point)
+            vmin = np.min(point_bath)
+            vmax = np.max(point_bath)
 
             # plot the sonar simulated data
-            sns.heatmap(data_point[:,:,0], square=True, cmap='jet', 
+            sns.heatmap(point_bath, square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[0][i],
                         xticklabels=False, yticklabels=False,
-                        mask=mask(data_point[:,:,0]),
+                        mask=mask(point_bath),
                         cbar=False)
 
             # plot the corresponding patch of bathymetry
-            sns.heatmap(data_point[:,:,1], square=True, cmap='jet', 
+            sns.heatmap(point_sonar, square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[1][i],
                         xticklabels=False, yticklabels=False,
+                        mask=mask(point_sonar),
                         cbar=False)
 
-        fig.suptitle('Simulated Sonar Measurements', fontsize=font_large)
-        ax[0][0].set(ylabel='Sonar Readings')
+        # handle labeling of subplots
+        fig.suptitle('Simulated Sonar Readings', fontsize=font_large)
+        ax[0][0].set(ylabel='Sample Bathymetry \n Patch')
         ax[0][0].yaxis.label.set_size(font_medium)
-        ax[1][0].set(ylabel='Bathymetry Patch')
+        ax[1][0].set(ylabel='Simulated Sonar \n Readings')
         ax[1][0].yaxis.label.set_size(font_medium)
         for i in range(ncols):
             ax[1][i].set(xlabel='Example ' + str(i+1))
