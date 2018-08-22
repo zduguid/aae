@@ -5,7 +5,7 @@
 
 from keras.models import Sequential, Model
 from keras.optimizers import Adam
-from keras.layers import Input, Dense, Reshape, Flatten, Dropout
+from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Masking
 from keras.layers import Lambda, GaussianNoise, BatchNormalization
 from keras.layers import Activation, Embedding, ZeroPadding2D, MaxPooling2D
 from keras.layers import LeakyReLU
@@ -13,8 +13,9 @@ import keras.backend as K
 
 import math, sys, random, warnings, os
 import numpy as np
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
@@ -31,7 +32,7 @@ class AdversarialAutoencoder():
         # define input dimensions and latent space dimension
         self.x_rows  = 50   # number of rows in input
         self.x_cols  = 50   # number of columns in input
-        self.z_dim   = 100  # dimension of latent space
+        self.z_dim   = 250  # dimension of latent space (10% of x-dimension)
         self.y_dim   = 1    # dimension of the truth value 
         self.x_shape = (self.x_rows, self.x_cols)
         self.gen_hidden_dim = 512
@@ -45,7 +46,6 @@ class AdversarialAutoencoder():
         b1 = 0.5            # beta_1 (default = 0.9)
         b2 = 0.999          # beta_2 (default = 0.999)
         optimizer = Adam(lr, b1, b2)
-
         
         # build the networks involved in the adversarial autoencoder
         #   encoder         (x -> z)
@@ -93,12 +93,12 @@ class AdversarialAutoencoder():
             + log(sigma^2) is used instead of sigma to stabilize learning
         :returns: the encoder
         """
-        # input
         x = Input(shape=self.x_shape, name='encoder_x')
 
         # build the hidden layers
         h = Flatten()(x)
-        h = Dense(self.gen_hidden_dim, name='encoder_h1')(h)
+        m = Masking(mask_value=0.0)(h)
+        h = Dense(self.gen_hidden_dim, name='encoder_h1')(m)
         h = LeakyReLU(alpha=self.leaky)(h)
         h = Dense(self.gen_hidden_dim, name='encoder_h2')(h)
         h = LeakyReLU(alpha=self.leaky)(h)
@@ -422,8 +422,7 @@ if __name__ == '__main__':
                             n_lim =   20.01, 
                             s_lim =   19.84)
 
-    # load bathymetry file and training data
-    bath = Bathymetry.load_file(falkor_file, falkor_bb)
+    # load bathymetry file and/or training data
     data_bath  = np.load('data/simulated/data_bath_n5000_50x50.npy')
     data_sonar = np.load('data/simulated/data_sonar_n5000_50x50.npy')
 
@@ -434,7 +433,7 @@ if __name__ == '__main__':
     # train the adversarial autoencoder with specified parameters and data
     aae.train(data_bath=data_bath, 
               data_sonar=data_sonar, 
-              epochs=1000, 
+              epochs=1000,
               batch_size=32, 
               sample_interval=100)
 
