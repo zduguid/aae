@@ -383,7 +383,7 @@ class AdversarialAutoencoder():
         ax[0][0].yaxis.label.set_size(font_medium)
         ax[1][0].set(ylabel='Simulated Sonar \n Readings')
         ax[1][0].yaxis.label.set_size(font_medium)
-        ax[2][0].set(ylabel='Randomly Masked \n Inputs')
+        ax[2][0].set(ylabel='Sonar Readings \n Randomly Filled')
         ax[2][0].yaxis.label.set_size(font_medium)
         ax[3][0].set(ylabel='Predicted \n Bathymetry Patch')
         ax[3][0].yaxis.label.set_size(font_medium)
