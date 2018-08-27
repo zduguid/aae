@@ -32,7 +32,7 @@ class AdversarialAutoencoder():
         # define input dimensions and latent space dimension
         self.x_rows  = 50   # number of rows in input
         self.x_cols  = 50   # number of columns in input
-        self.z_dim   = 250  # dimension of latent space (10% of x-dimension)
+        self.z_dim   = 100  # dimension of latent space
         self.y_dim   = 1    # dimension of the truth value 
         self.x_shape = (self.x_rows, self.x_cols)
         self.gen_hidden_dim = 512
@@ -163,7 +163,7 @@ class AdversarialAutoencoder():
         return Model(z, y, name='discriminator')
 
 
-    def train(self, data_bath, data_sonar, data_rand, epochs, batch_size=32, sample_interval=100):
+    def train(self, data_bath, data_sonar, data_knn_fill, epochs, batch_size=32, sample_interval=100):
         """
         trains the AAE network by alternating between two phases:
             1) reconstruction phase: update encoder and decoder to 
@@ -172,7 +172,8 @@ class AdversarialAutoencoder():
                 samples from generated, update encoder to fool discriminator
         :param data_bath:  the sampled bathymetry patch training data
         :param data_sonar: the simulated sonar readings training data
-        :param data_rand:  the sonar readings when mask is random noise
+        :param data_knn_fill:  the sonar readings when masked area is filled
+            with average of the k-nearest-nonzero-neighbors
         :param epochs: the number of passes through the data
         :param batch_size: the number of training examples in a training batch
         :param sample_interval: frequency of generating a test sample
@@ -180,10 +181,11 @@ class AdversarialAutoencoder():
         if self.animations: print('>> training network')
 
         # assemble all training data into one array using defensive copying
-        #   + train on the bathymetry twice as often as the sonar
+        #   + train on the bathymetry three times as often as filled sonar
         data = np.vstack([np.copy(data_bath), 
                           np.copy(data_bath),
-                          np.copy(data_rand)])
+                          np.copy(data_bath),
+                          np.copy(data_knn_fill)])
 
         # pass through entire data set a specified number of times
         for epoch in range(epochs):
@@ -217,7 +219,7 @@ class AdversarialAutoencoder():
                 self._get_samples(epoch + 1)
 
                 # get predicted bathymetry values using sonar alone
-                self._get_predictions(epoch + 1, data_bath, data_sonar, data_rand)
+                self._get_predictions(epoch + 1, data_bath, data_sonar, data_knn_fill)
 
 
     def _train_encoder(self, x_batch):
@@ -302,13 +304,14 @@ class AdversarialAutoencoder():
         plt.close()
 
 
-    def _get_predictions(self, epoch, data_bath, data_sonar, data_rand):
+    def _get_predictions(self, epoch, data_bath, data_sonar, data_knn_fill):
         """
         generates predictions of bathymetry patches using given data
         :param epochs: the epoch at which the predictions are generated
         :param data_bath: unmodified samples of bathymetry
         :param data_sonar: simulated sonar readings from the bathymetry patch
-        :param data_rand: sonar readings where masked area is filled randomly
+        :param data_knn_fill:  sonar readings when masked area is filled
+            with average of the k-nearest-nonzero-neighbors
         """
         # plotting parameters
         ncols = min(4, len(data_sonar))
@@ -321,7 +324,7 @@ class AdversarialAutoencoder():
         sample_indices = random.sample(range(len(data_sonar)), ncols)
         bath_points    = data_bath[sample_indices]
         sonar_points   = data_sonar[sample_indices]
-        rand_points    = data_rand[sample_indices]
+        knn_points     = data_knn_fill[sample_indices]
 
         # mask used for plotting simulated sonar readings
         def mask(x):
@@ -340,10 +343,10 @@ class AdversarialAutoencoder():
         for i in range(ncols):
             bath_point  = bath_points[i]
             sonar_point = sonar_points[i]
-            rand_point  = rand_points[i]
+            knn_point  = knn_points[i]
 
             # generate the input to the autoencoder
-            x_input = np.expand_dims(rand_point, axis=0)
+            x_input = np.expand_dims(knn_point, axis=0)
 
             # retrieve the autoencoder prediction
             x_output = self.autoencoder.predict(x_input)[0]
@@ -366,7 +369,7 @@ class AdversarialAutoencoder():
                         cbar=False)
 
             # plot the simulated sonar data with randomly filled mask
-            sns.heatmap(rand_point, square=True, cmap='jet', 
+            sns.heatmap(knn_point, square=True, cmap='jet', 
                         vmin=vmin, vmax=vmax, ax=ax[2][i],
                         xticklabels=False, yticklabels=False,
                         cbar=False)
@@ -383,7 +386,7 @@ class AdversarialAutoencoder():
         ax[0][0].yaxis.label.set_size(font_medium)
         ax[1][0].set(ylabel='Simulated Sonar \n Readings')
         ax[1][0].yaxis.label.set_size(font_medium)
-        ax[2][0].set(ylabel='Sonar Readings \n Randomly Filled')
+        ax[2][0].set(ylabel='Sonar Readings \n KNN Filled')
         ax[2][0].yaxis.label.set_size(font_medium)
         ax[3][0].set(ylabel='Predicted \n Bathymetry Patch')
         ax[3][0].yaxis.label.set_size(font_medium)
@@ -436,9 +439,9 @@ if __name__ == '__main__':
                             s_lim =   19.84)
 
     # load bathymetry file and/or training data    
-    data_bath  = np.load('data/simulated/data_bath_n5000_50x50.npy')
-    data_sonar = np.load('data/simulated/data_sonar_n5000_50x50.npy')
-    data_rand  = np.load('data/simulated/data_rand_n5000_50x50.npy')
+    data_bath     = np.load('data/simulated/data_bath_n5000_50x50.npy')
+    data_sonar    = np.load('data/simulated/data_sonar_n5000_50x50.npy')
+    data_knn_fill = np.load('data/simulated/data_knn_fill_n5000_50x50.npy')
 
     # construct the adversarial autoencoder
     warnings.filterwarnings(action='once', message='Discrepancy between trainable weights and collected trainable')
@@ -447,8 +450,8 @@ if __name__ == '__main__':
     # train the adversarial autoencoder with specified parameters and data
     aae.train(data_bath=data_bath, 
               data_sonar=data_sonar, 
-              data_rand=data_rand,
-              epochs=1000,
+              data_knn_fill=data_knn_fill,
+              epochs=5000,
               batch_size=32, 
               sample_interval=100)
 

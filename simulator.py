@@ -515,6 +515,44 @@ class Bathymetry():
         return patch_bath, patch_sonar
 
 
+    @staticmethod
+    def get_knn_fill(k, sparse):
+        """
+        fills missing values of sonar matrix with KNN-averages (K-nearest-neighbors)
+        :param k: the number of neighbors to consider when filling the matrix
+        :param sparse: the matrix to be filled according to KNN-averages
+            + does not mutate sparse array
+        """
+        filled = np.copy(sparse)
+
+        # retrieve all non-zero measurements
+        vals = []
+        for r in range(sparse.shape[0]):
+            for c in range(sparse.shape[1]):
+                if sparse[r,c] != 0: vals.append((r,c))
+
+        # bound k by the number of non-zero entries
+        if len(vals) < k: k = len(vals)
+
+        # fill in missing elements with average of k-nearest-neighbors
+        for r in range(sparse.shape[0]):
+            for c in range(sparse.shape[1]):
+                if sparse[r,c] == 0:
+                    
+                    # compute the distances to non-zero elements 
+                    dist = np.array([((val[0] - r)**2 + (val[1] - c)**2)**0.5 
+                                     for val in vals])
+
+                    # compute the k-closest values
+                    k_nearest = np.argpartition(dist, k)[:k]
+
+                    # fill in the missing value given the k-closest values
+                    fill_val = sum([sparse[vals[i][0], vals[i][1]] for i in k_nearest])/k
+                    filled[r,c] = fill_val
+
+        return filled
+
+
     def _plot_sample_locations(self, sample_col, sample_row, bath_shape):
         """
         plots the longitude-latitude locations of where samples were taken
